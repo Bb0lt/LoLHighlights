@@ -3,6 +3,19 @@ import torch
 from torchvision import models, transforms
 
 
+def format_timedelta(td):
+    """Utility function to format timedelta objects in a cool way (e.g 00:00:20.05)
+    omitting microseconds and retaining milliseconds"""
+    result = str(td)
+    try:
+        result, ms = result.split(".")
+    except ValueError:
+        return (result + ".00").replace(":", "-")
+    ms = int(ms)
+    ms = round(ms / 1e4)
+    return f"{result}.{ms:02}".replace(":", "-")
+
+
 def extract_frames(video_path, frame_interval):
     frames = []
     cap = cv2.VideoCapture(video_path)
@@ -16,6 +29,7 @@ def extract_frames(video_path, frame_interval):
             break
 
         if i % interval_frames == 0:
+            print(f"\r{i}")
             frames.append(frame)
 
     cap.release()
@@ -33,7 +47,7 @@ def classify_frames(frames, model):
     ])
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
+    print(frames)
     for frame in frames:
         input_tensor = preprocess(frame)
         input_batch = input_tensor.unsqueeze(0).to(device)
@@ -53,6 +67,7 @@ def classify_frames(frames, model):
 def main(path):
     # Extract frames from the video
     frames = extract_frames(path, frame_interval=2)
+    print(frames)
 
     # Classify the frames using the pretrained model
     results = classify_frames(frames, model)
