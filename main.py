@@ -1,4 +1,5 @@
 import argparse
+import os
 
 import cv2
 import numpy as np
@@ -8,26 +9,26 @@ FRAME_WIDTH = 1920
 FRAME_HEIGHT = 1080
 
 # Time interval (in seconds) between extracted frames
-EXTRACT_INTERVAL = 3
+DEFAULT_EXTRACT_INTERVAL = 2
 
 # Threshold value for template matching
 MATCH_THRESH = 0.85
 
-# Flag to display frames with matched templates
-SHOW_MATCH = True
+# Get the absolute path of the current directory
+current_dir = os.path.dirname(os.path.abspath(__file__))
 
 # Template images in grayscale
 template_images = {
-    "double": cv2.imread('images of phrases\double.png', cv2.IMREAD_GRAYSCALE),
-    "triple": cv2.imread('images of phrases\\triple.png', cv2.IMREAD_GRAYSCALE),
-    "quadra": cv2.imread('images of phrases\quadra.png', cv2.IMREAD_GRAYSCALE),
-    "penta": cv2.imread('images of phrases\penta.png', cv2.IMREAD_GRAYSCALE),
+    "double": cv2.imread(os.path.join(current_dir, 'data\\images of phrases', 'double.png'), cv2.IMREAD_GRAYSCALE),
+    "triple": cv2.imread(os.path.join(current_dir, 'data\\images of phrases', 'triple.png'), cv2.IMREAD_GRAYSCALE),
+    "quadra": cv2.imread(os.path.join(current_dir, 'data\\images of phrases', 'quadra.png'), cv2.IMREAD_GRAYSCALE),
+    "penta": cv2.imread(os.path.join(current_dir, 'data\\images of phrases', 'penta.png'), cv2.IMREAD_GRAYSCALE),
 }
 
 
-def extract_frames(video_path, frame_interval):
+def classify_frames(video_path, frame_interval=DEFAULT_EXTRACT_INTERVAL):
     """
-    Extract frames from the video at the given frame interval.
+    Classify frames from the video at the given frame interval.
 
     Args:
         video_path (str): Path to the video file.
@@ -36,7 +37,7 @@ def extract_frames(video_path, frame_interval):
     Returns:
         list: List of extracted frames in grayscale.
     """
-    frames = []
+    results = []
     cap = cv2.VideoCapture(video_path)
 
     # Set the desired resolution
@@ -55,10 +56,13 @@ def extract_frames(video_path, frame_interval):
 
         # Convert the frame to grayscale
         frame_gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-        frames.append(frame_gray)
+
+        classification = classify_frame(frame_gray, i // interval_frames * frame_interval)
+        if classification:
+            results.append(classification)
 
     cap.release()
-    return frames
+    return results
 
 
 def show_frame_with_border(frame, key):
@@ -82,13 +86,13 @@ def show_frame_with_border(frame, key):
     cv2.destroyAllWindows()
 
 
-def classify_single_frame(frame, frame_number):
+def classify_frame(frame, timestamp):
     """
     Classify a single frame using template matching.
 
     Args:
         frame (numpy.array): Grayscale image frame.
-        frame_number (int): Frame number.
+        timestamp (float): Timestamp of the frame in seconds.
 
     Returns:
         str: String indicating the matched template and its timestamp.
@@ -99,36 +103,35 @@ def classify_single_frame(frame, frame_number):
 
         # Output True if there is a match, False otherwise
         if len(loc[0]) > 0:
-            timestamp = frame_number * EXTRACT_INTERVAL
-            return f"{key} @ {int(timestamp // 60)}:{int(timestamp % 60)}"
+            if SHOW_MATCH:
+                show_frame_with_border(frame.copy(), result.split()[0])
+            formatted_timestamp = format_timestamp(timestamp)
+            return f"{key} @ {formatted_timestamp}"
     return None
 
 
-def classify_frames(frames):
+def format_timestamp(timestamp):
     """
-    Classify frames using template matching.
+    Format a time float with 2 decimals in seconds to a nicely formatted string in minutes and seconds.
 
     Args:
-        frames (list): List of frames in grayscale.
+        timestamp (float): Time in seconds with 2 decimal places.
 
     Returns:
-        list: List of strings indicating the matched templates and their timestamps.
+        str: Formatted time string (e.g., '1:23' for 1 minute and 23 seconds).
     """
-    results = []
-
-    for i, frame in enumerate(frames):
-        result = classify_single_frame(frame, i)
-        if result is not None:
-            results.append(result)
-            if SHOW_MATCH:
-                show_frame_with_border(frame.copy(), result.split()[0])
-
-    return results
+    minutes = int(timestamp // 60)
+    seconds = int(timestamp % 60)
+    return f"{minutes}:{seconds:02d}"
 
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="Video template matching")
     parser.add_argument("video_path", nargs="?", help="Path to the input video file")
+    parser.add_argument('--show-matches', action='store_true', help='Flag to display frames with matched templates')
+    parser.add_argument('--wait', action='store_true', help='Flag to pause terminal after execution')
+    parser.add_argument('--extract-interval', type=float, default=DEFAULT_EXTRACT_INTERVAL,
+                        help='Time interval (in seconds) between extracted frames')
     args = parser.parse_args()
 
     if not args.video_path:
@@ -137,11 +140,13 @@ if __name__ == '__main__':
     # Path to the input video file
     VID_PATH = args.video_path
 
-    # Extract frames from the video
-    frames = extract_frames(VID_PATH, frame_interval=EXTRACT_INTERVAL)
+    # Flag to display frames with matched templates
+    SHOW_MATCH = args.show_matches
 
-    # Classify the frames using template matching
-    results = classify_frames(frames)
+    results = classify_frames(VID_PATH, frame_interval=args.extract_interval)
 
     # Print the matched templates and their timestamps
     print("\n".join(results))
+
+    if args.wait:
+        input("Press enter to exit...")
