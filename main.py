@@ -1,8 +1,7 @@
+import argparse
+
 import cv2
 import numpy as np
-
-# Path to the input video file
-VID_PATH = "sample videos\\triple kill.mkv"
 
 # Set the desired resolution (1080p)
 FRAME_WIDTH = 1920
@@ -101,9 +100,7 @@ def classify_single_frame(frame, frame_number):
         # Output True if there is a match, False otherwise
         if len(loc[0]) > 0:
             timestamp = frame_number * EXTRACT_INTERVAL
-            return f"{key} found at {timestamp:.2f} seconds"
-            break
-
+            return f"{key} @ {int(timestamp // 60)}:{int(timestamp % 60)}"
     return None
 
 
@@ -130,8 +127,15 @@ def classify_frames(frames):
 
 
 if __name__ == '__main__':
-    if not VID_PATH:
-        VID_PATH = input("Copy & Paste the path to your video: ")
+    parser = argparse.ArgumentParser(description="Video template matching")
+    parser.add_argument("video_path", nargs="?", help="Path to the input video file")
+    args = parser.parse_args()
+
+    if not args.video_path:
+        args.video_path = input("Copy & Paste the path to your video: ")
+
+    # Path to the input video file
+    VID_PATH = args.video_path
 
     # Extract frames from the video
     frames = extract_frames(VID_PATH, frame_interval=EXTRACT_INTERVAL)
@@ -140,5 +144,4 @@ if __name__ == '__main__':
     results = classify_frames(frames)
 
     # Print the matched templates and their timestamps
-    for result in results:
-        print(result)
+    print("\n".join(results))
