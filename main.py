@@ -1,5 +1,7 @@
 import argparse
 import os
+import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import cv2
 import numpy as np
@@ -26,9 +28,9 @@ template_images = {
 }
 
 
-def classify_frames(video_path, frame_interval=DEFAULT_EXTRACT_INTERVAL):
+def extract_frames_parallel(video_path, frame_interval=DEFAULT_EXTRACT_INTERVAL):
     """
-    Classify frames from the video at the given frame interval.
+    Extract frames from the video at the given frame interval using multi-threading.
 
     Args:
         video_path (str): Path to the video file.
@@ -38,30 +40,35 @@ def classify_frames(video_path, frame_interval=DEFAULT_EXTRACT_INTERVAL):
         list: List of extracted frames in grayscale.
     """
     results = []
+
+    def extract_frame(frame_num):
+        cap = cv2.VideoCapture(video_path)
+        cap.set(cv2.CAP_PROP_POS_FRAMES, frame_num)
+        ret, frame = cap.read()
+        cap.release()
+
+        if ret:
+            frame_gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+            classification = classify_frame(frame_gray, frame_num // interval_frames * frame_interval)
+            if classification:
+                results.append(classification)
+
     cap = cv2.VideoCapture(video_path)
-
-    # Set the desired resolution
-    cap.set(cv2.CAP_PROP_FRAME_WIDTH, FRAME_WIDTH)
-    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, FRAME_HEIGHT)
-
     frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
     fps = cap.get(cv2.CAP_PROP_FPS)
     interval_frames = int(fps * frame_interval)
 
-    for i in range(0, frame_count, interval_frames):
-        cap.set(cv2.CAP_PROP_POS_FRAMES, i)
-        ret, frame = cap.read()
-        if not ret:
-            break
+    frame_nums = range(0, frame_count, interval_frames)
 
-        # Convert the frame to grayscale
-        frame_gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+    with ThreadPoolExecutor() as executor:
+        futures = {executor.submit(extract_frame, frame_num): frame_num for frame_num in frame_nums}
+        for future in as_completed(futures):
+            frame_num = futures[future]
+            try:
+                future.result()
+            except Exception as e:
+                print(f"Error extracting frame {frame_num}: {e}")
 
-        classification = classify_frame(frame_gray, i // interval_frames * frame_interval)
-        if classification:
-            results.append(classification)
-
-    cap.release()
     return results
 
 
@@ -132,6 +139,7 @@ if __name__ == '__main__':
     parser.add_argument('--wait', action='store_true', help='Flag to pause terminal after execution')
     parser.add_argument('--extract-interval', type=float, default=DEFAULT_EXTRACT_INTERVAL,
                         help='Time interval (in seconds) between extracted frames')
+    parser.add_argument('--time-elapsed', action='store_true', help='Flag to display elapsed time')
     args = parser.parse_args()
 
     if not args.video_path:
@@ -143,10 +151,22 @@ if __name__ == '__main__':
     # Flag to display frames with matched templates
     SHOW_MATCH = args.show_matches
 
-    results = classify_frames(VID_PATH, frame_interval=args.extract_interval)
+    # Start the timer if the --time-elapsed flag is set
+    start_time = time.time()
 
-    # Print the matched templates and their timestamps
-    print("\n".join(results))
+    results = extract_frames_parallel(VID_PATH, frame_interval=args.extract_interval)
+
+    # Sort the results based on the timestamp
+    sorted_results = sorted(results, key=lambda x: int(x.split('@')[1].strip().replace(':', '')))
+
+    # Print the sorted matched templates and their timestamps
+    print("\n".join(sorted_results))
+
+    # End the timer if the --time-elapsed flag is set and display the elapsed time
+    if args.time_elapsed:
+        end_time = time.time()
+        elapsed_time = end_time - start_time
+        print(f"Elapsed Time: {elapsed_time:.2f} seconds")
 
     if args.wait:
         input("Press enter to exit...")
