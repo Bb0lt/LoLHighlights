@@ -1,17 +1,28 @@
 import cv2
 import numpy as np
 
-VID_PATH = None
-EXTRACT_INTERVAL = 2
-MATCH_THRESH = 0.8
+# Path to the input video file
+VID_PATH = "sample videos\\triple kill.mkv"
+
+# Set the desired resolution (1080p)
+FRAME_WIDTH = 1920
+FRAME_HEIGHT = 1080
+
+# Time interval (in seconds) between extracted frames
+EXTRACT_INTERVAL = 3
+
+# Threshold value for template matching
+MATCH_THRESH = 0.85
+
+# Flag to display frames with matched templates
 SHOW_MATCH = True
 
 # Template images in grayscale
 template_images = {
-    "double": cv2.imread('images of phrases\double 2.png', cv2.IMREAD_GRAYSCALE),
-    "triple": cv2.imread('images of phrases\\triple 2.png', cv2.IMREAD_GRAYSCALE),
-    "quadra": cv2.imread('images of phrases\quadra 2.png', cv2.IMREAD_GRAYSCALE),
-    "penta": cv2.imread('images of phrases\penta 2.png', cv2.IMREAD_GRAYSCALE),
+    "double": cv2.imread('images of phrases\double.png', cv2.IMREAD_GRAYSCALE),
+    "triple": cv2.imread('images of phrases\\triple.png', cv2.IMREAD_GRAYSCALE),
+    "quadra": cv2.imread('images of phrases\quadra.png', cv2.IMREAD_GRAYSCALE),
+    "penta": cv2.imread('images of phrases\penta.png', cv2.IMREAD_GRAYSCALE),
 }
 
 
@@ -28,19 +39,24 @@ def extract_frames(video_path, frame_interval):
     """
     frames = []
     cap = cv2.VideoCapture(video_path)
+
+    # Set the desired resolution
+    cap.set(cv2.CAP_PROP_FRAME_WIDTH, FRAME_WIDTH)
+    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, FRAME_HEIGHT)
+
     frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
     fps = cap.get(cv2.CAP_PROP_FPS)
     interval_frames = int(fps * frame_interval)
 
-    for i in range(frame_count):
+    for i in range(0, frame_count, interval_frames):
+        cap.set(cv2.CAP_PROP_POS_FRAMES, i)
         ret, frame = cap.read()
         if not ret:
             break
 
-        if i % interval_frames == 0:
-            # Convert the frame to grayscale
-            frame_gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-            frames.append(frame_gray)
+        # Convert the frame to grayscale
+        frame_gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+        frames.append(frame_gray)
 
     cap.release()
     return frames
@@ -67,6 +83,30 @@ def show_frame_with_border(frame, key):
     cv2.destroyAllWindows()
 
 
+def classify_single_frame(frame, frame_number):
+    """
+    Classify a single frame using template matching.
+
+    Args:
+        frame (numpy.array): Grayscale image frame.
+        frame_number (int): Frame number.
+
+    Returns:
+        str: String indicating the matched template and its timestamp.
+    """
+    for key in template_images:
+        result = cv2.matchTemplate(frame, template_images[key], cv2.TM_CCOEFF_NORMED)
+        loc = np.where(result >= MATCH_THRESH)
+
+        # Output True if there is a match, False otherwise
+        if len(loc[0]) > 0:
+            timestamp = frame_number * EXTRACT_INTERVAL
+            return f"{key} found at {timestamp:.2f} seconds"
+            break
+
+    return None
+
+
 def classify_frames(frames):
     """
     Classify frames using template matching.
@@ -78,17 +118,14 @@ def classify_frames(frames):
         list: List of strings indicating the matched templates and their timestamps.
     """
     results = []
-    for i, frame in enumerate(frames):
-        for key in template_images:
-            result = cv2.matchTemplate(frame, template_images[key], cv2.TM_CCOEFF_NORMED)
-            loc = np.where(result >= MATCH_THRESH)
 
-            # Output True if there is a match, False otherwise
-            if len(loc[0]) > 0:
-                results.append(f"{key} found at {i * EXTRACT_INTERVAL} seconds")
-                if SHOW_MATCH:
-                    show_frame_with_border(frame.copy(), key)
-                break
+    for i, frame in enumerate(frames):
+        result = classify_single_frame(frame, i)
+        if result is not None:
+            results.append(result)
+            if SHOW_MATCH:
+                show_frame_with_border(frame.copy(), result.split()[0])
+
     return results
 
 
