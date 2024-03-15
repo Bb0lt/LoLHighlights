@@ -171,7 +171,7 @@ if __name__ == '__main__':
     print("\n".join(sorted_results))
 
     # End the timer if the --time-elapsed flag is set and display the elapsed time
-    if args.time_elapsed or True:
+    if args.time_elapsed:
         end_time = time.time()
         elapsed_time = end_time - start_time
         print(f"Elapsed Time: {elapsed_time:.2f} seconds")
