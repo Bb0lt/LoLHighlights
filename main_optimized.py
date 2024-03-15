@@ -2,11 +2,11 @@ import argparse
 import os
 import threading
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import cv2
 import numpy as np
-from decord import VideoReader
-from decord import cpu
+from decord import VideoReader, cpu
 
 # Initialize a lock for thread-safe operations on the video capture object
 video_capture_lock = threading.Lock()
@@ -45,38 +45,31 @@ template_images = {
 }
 
 
-# for name, image in template_images.items():
-#     cv2.imshow(name, image)
-#     cv2.waitKey(0) # Wait for a key press to move to the next image
-# cv2.destroyAllWindows() # Close all OpenCV windows
-
-
 def extract_frames(video_file_path, seconds_between_frames):
-    vr = VideoReader(video_file_path, ctx=cpu(0))  # Use GPU if available
+    """
+    Extract frames from the specified video file at the given interval of seconds.
+
+    Args:
+       video_file_path (str): Path to the video file.
+       seconds_between_frames (float): Interval between frames to extract in seconds.
+
+    Returns:
+       list: A list of classified frames.
+    """
+    vr = VideoReader(video_file_path, ctx=cpu(0))
     fps = vr.get_avg_fps()
     frames_to_extract = int(fps * seconds_between_frames)
 
     total_frames = len(vr)
     frame_indices = list(range(0, total_frames, frames_to_extract))
 
-    extracted_frames = []
-    for idx in frame_indices:
-        frame = vr[idx].asnumpy()
-        timestamp = idx / fps
+    # Use ThreadPoolExecutor to process frames in parallel
+    with ThreadPoolExecutor() as executor:
+        future_to_idx = {
+            executor.submit(classify_frame, cv2.cvtColor(vr[idx].asnumpy(), cv2.COLOR_BGR2GRAY), idx / fps): idx for idx
+            in frame_indices}
+        extracted_frames = [future.result() for future in as_completed(future_to_idx) if future.result()]
 
-        # Resize frame to lower resolution (144p) for faster processing
-        frame_resized = frame  # cv2.resize(frame, (FRAME_WIDTH, FRAME_HEIGHT))
-
-        # Convert to grayscale
-        gray_frame = cv2.cvtColor(frame_resized, cv2.COLOR_BGR2GRAY)
-        classified_frame = classify_frame(gray_frame, timestamp)
-        if classified_frame:
-            extracted_frames.append(classified_frame)
-
-        # # Display the processed frame
-        # cv2.imshow(f'Frame {idx}', gray_frame)
-        # cv2.waitKey(0) # Wait for a key press to move to the next image
-        # cv2.destroyAllWindows()
     return extracted_frames
 
 
@@ -128,13 +121,13 @@ def classify_frame(frame, timestamp):
 
 def format_timestamp(timestamp):
     """
-    Format a time float with 2 decimals in seconds to a nicely formatted string in minutes and seconds.
+    Convert a timestamp in seconds to a formatted string in minutes and seconds.
 
     Args:
-        timestamp (float): Time in seconds with 2 decimal places.
+        timestamp (float): The timestamp in seconds.
 
     Returns:
-        str: Formatted time string (e.g., '1:23' for 1 minute and 23 seconds).
+        str: The formatted timestamp as a string in 'minutes:seconds' format.
     """
     minutes = int(timestamp // 60)
     seconds = int(timestamp % 60)
