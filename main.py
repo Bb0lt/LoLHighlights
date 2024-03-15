@@ -1,14 +1,19 @@
 import argparse
+import math
 import os
+import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import cv2
 import numpy as np
 
+# Initialize a lock for thread-safe operations on the video capture object
+video_capture_lock = threading.Lock()
+
 # Set the desired resolution (1080p)
-FRAME_WIDTH = 1920
-FRAME_HEIGHT = 1080
+FRAME_WIDTH = 256
+FRAME_HEIGHT = 144
 
 # Time interval (in seconds) between extracted frames
 DEFAULT_EXTRACT_INTERVAL = 2
@@ -28,48 +33,51 @@ template_images = {
 }
 
 
-def extract_frames_parallel(video_path, frame_interval=DEFAULT_EXTRACT_INTERVAL):
-    """
-    Extract frames from the video at the given frame interval using multi-threading.
+def extract_frames_parallel(video_file_path, seconds_between_frames=DEFAULT_EXTRACT_INTERVAL):
+    classified_results = []
 
-    Args:
-        video_path (str): Path to the video file.
-        frame_interval (int): Interval in seconds between extracted frames.
+    video_capture = cv2.VideoCapture(video_file_path)
+    if not video_capture.isOpened():
+        print("Error: Failed to open video file.")
+        return []
+    # else:
+    #     #  change the width and height of the capture
+    #     video_capture.set(cv2.CAP_PROP_FRAME_WIDTH, FRAME_WIDTH)
+    #     video_capture.set(cv2.CAP_PROP_FRAME_HEIGHT, FRAME_HEIGHT)
 
-    Returns:
-        list: List of extracted frames in grayscale.
-    """
-    results = []
+    total_frame_count = int(video_capture.get(cv2.CAP_PROP_FRAME_COUNT))
+    frames_per_second = math.ceil(video_capture.get(cv2.CAP_PROP_FPS))
+    frames_per_interval = int(frames_per_second * seconds_between_frames)
+    frame_indices = range(0, total_frame_count, frames_per_interval)
 
-    def extract_frame(frame_num):
-        cap = cv2.VideoCapture(video_path)
-        cap.set(cv2.CAP_PROP_POS_FRAMES, frame_num)
-        ret, frame = cap.read()
-        cap.release()
+    def process_and_classify_frame(video_capture, frame_index, lock):
+        with lock:
+            video_capture.set(cv2.CAP_PROP_POS_FRAMES, frame_index)
+            frame_retrieved, frame = video_capture.read()
 
-        if ret:
-            frame_gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-            classification = classify_frame(frame_gray, frame_num // interval_frames * frame_interval)
-            if classification:
-                results.append(classification)
-
-    cap = cv2.VideoCapture(video_path)
-    frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-    fps = cap.get(cv2.CAP_PROP_FPS)
-    interval_frames = int(fps * frame_interval)
-
-    frame_nums = range(0, frame_count, interval_frames)
+        if frame_retrieved:
+            frame_in_grayscale = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+            frame_classification = classify_frame(
+                frame_in_grayscale, frame_index // frames_per_interval * seconds_between_frames
+            )
+            if frame_classification:
+                classified_results.append(frame_classification)
 
     with ThreadPoolExecutor() as executor:
-        futures = {executor.submit(extract_frame, frame_num): frame_num for frame_num in frame_nums}
-        for future in as_completed(futures):
-            frame_num = futures[future]
+        future_to_frame_index = {
+            executor.submit(process_and_classify_frame, video_capture, frame_index, video_capture_lock): frame_index for
+            frame_index in frame_indices
+        }
+        for future in as_completed(future_to_frame_index):
             try:
                 future.result()
-            except Exception as e:
-                print(f"Error extracting frame {frame_num}: {e}")
+            except Exception as error:
+                frame_index = future_to_frame_index[future]
+                print(f"Error processing frame {frame_index}: {error}")
 
-    return results
+    video_capture.release()
+
+    return classified_results
 
 
 def show_frame_with_border(frame, key):
@@ -154,7 +162,7 @@ if __name__ == '__main__':
     # Start the timer if the --time-elapsed flag is set
     start_time = time.time()
 
-    results = extract_frames_parallel(VID_PATH, frame_interval=args.extract_interval)
+    results = extract_frames_parallel(VID_PATH, seconds_between_frames=args.extract_interval)
 
     # Sort the results based on the timestamp
     sorted_results = sorted(results, key=lambda x: int(x.split('@')[1].strip().replace(':', '')))
@@ -163,7 +171,7 @@ if __name__ == '__main__':
     print("\n".join(sorted_results))
 
     # End the timer if the --time-elapsed flag is set and display the elapsed time
-    if args.time_elapsed:
+    if args.time_elapsed or True:
         end_time = time.time()
         elapsed_time = end_time - start_time
         print(f"Elapsed Time: {elapsed_time:.2f} seconds")
